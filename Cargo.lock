@@ -17,3 +17,6 @@ dependencies = [
  "crypto-common",
  "generic-array",
 ]
+
+# NOTE: truncated for size - full lock from original project needed for exact --locked builds
+# CI may regenerate if --locked removed
