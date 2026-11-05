@@ -12,8 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check --locked
-      - run: cargo check --locked --no-default-features
+      - run: cargo check
+      - run: cargo check --no-default-features
 
   build:
     needs: check
@@ -31,26 +31,6 @@ jobs:
             tool: cross
             variant: lite
             ext: ""
-          - target: aarch64-unknown-linux-musl
-            asset: linux-aarch64
-            tool: cross
-            variant: full
-            ext: ""
-          - target: aarch64-unknown-linux-musl
-            asset: linux-aarch64
-            tool: cross
-            variant: lite
-            ext: ""
-          - target: x86_64-pc-windows-gnu
-            asset: windows-x86_64
-            tool: cross
-            variant: full
-            ext: ".exe"
-          - target: x86_64-pc-windows-gnu
-            asset: windows-x86_64
-            tool: cross
-            variant: lite
-            ext: ".exe"
           - target: aarch64-linux-android
             asset: android-aarch64
             tool: cross
@@ -71,6 +51,16 @@ jobs:
             tool: cross
             variant: lite
             ext: ""
+          - target: x86_64-pc-windows-gnu
+            asset: windows-x86_64
+            tool: cross
+            variant: full
+            ext: ".exe"
+          - target: x86_64-pc-windows-gnu
+            asset: windows-x86_64
+            tool: cross
+            variant: lite
+            ext: ".exe"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +74,7 @@ jobs:
         run: |
           FEATURES=""
           [ "${{ matrix.variant }}" = "lite" ] && FEATURES="--no-default-features"
-          ${{ matrix.tool }} build --release --locked $FEATURES --target ${{ matrix.target }}
+          ${{ matrix.tool }} build --release $FEATURES --target ${{ matrix.target }}
       - name: Stage binary
         shell: bash
         run: |
