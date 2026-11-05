@@ -1,0 +1,168 @@
+name: build-and-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (defaults to the version in Cargo.toml)"
+        required: false
+        type: string
+      draft:
+        description: "Publish as a draft"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+            TAG="v$TAG"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --locked
+      - run: cargo check --locked --no-default-features
+
+  build:
+    needs: [version, check]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            asset: linux-x86_64
+            tool: cross
+            variant: full
+            ext: ""
+          - target: x86_64-unknown-linux-musl
+            asset: linux-x86_64
+            tool: cross
+            variant: lite
+            ext: ""
+          - target: aarch64-linux-android
+            asset: android-aarch64
+            tool: cross
+            variant: full
+            ext: ""
+          - target: aarch64-linux-android
+            asset: android-aarch64
+            tool: cross
+            variant: lite
+            ext: ""
+          - target: armv7-linux-androideabi
+            asset: android-armv7
+            tool: cross
+            variant: full
+            ext: ""
+          - target: armv7-linux-androideabi
+            asset: android-armv7
+            tool: cross
+            variant: lite
+            ext: ""
+          - target: x86_64-pc-windows-gnu
+            asset: windows-x86_64
+            tool: cross
+            variant: full
+            ext: ".exe"
+          - target: x86_64-pc-windows-gnu
+            asset: windows-x86_64
+            tool: cross
+            variant: lite
+            ext: ".exe"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross
+        if: matrix.tool == 'cross'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Build
+        run: |
+          FEATURES=""
+          [ "${{ matrix.variant }}" = "lite" ] && FEATURES="--no-default-features"
+          ${{ matrix.tool }} build --release --locked $FEATURES --target ${{ matrix.target }}
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          suffix=""
+          [ "${{ matrix.variant }}" = "lite" ] && suffix="-lite"
+          cp "target/${{ matrix.target }}/release/hpwnr${{ matrix.ext }}" "dist/hpwnr${suffix}-${{ matrix.asset }}${{ matrix.ext }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hpwnr${{ matrix.variant == 'lite' && '-lite' || '' }}-${{ matrix.asset }}
+          path: dist/*
+
+  release_lite:
+    needs: [version, check, build]
+    if: ${{ !cancelled() && needs.check.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          pattern: hpwnr-lite-*
+          merge-multiple: true
+      - name: Checksums
+        shell: bash
+        run: |
+          cd release
+          ls -la
+          shasum -a 256 * > SHA256SUMS.txt || true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}-lite
+          name: ${{ needs.version.outputs.tag }}-lite
+          draft: ${{ inputs.draft }}
+          prerelease: false
+          make_latest: false
+          generate_release_notes: true
+          files: release/*
+
+  release_full:
+    needs: [version, check, build, release_lite]
+    if: ${{ !cancelled() && needs.check.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          pattern: hpwnr-*
+          merge-multiple: true
+      - name: Keep only full binaries
+        shell: bash
+        run: rm -f release/hpwnr-lite-* || true
+      - name: Checksums
+        shell: bash
+        run: |
+          cd release
+          ls -la
+          shasum -a 256 * > SHA256SUMS.txt || true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: ${{ needs.version.outputs.tag }}
+          draft: ${{ inputs.draft }}
+          prerelease: false
+          make_latest: true
+          generate_release_notes: true
+          files: release/*
